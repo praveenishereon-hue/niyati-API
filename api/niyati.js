@@ -1,5 +1,5 @@
-// api/niyati.js — Robust Node Serverless (no crash, clear JSON always)
-export default async function handler(req, res) {
+// api/niyati.js — CommonJS version (Vercel Node) + robust JSON replies
+module.exports = async function handler(req, res) {
   // --- CORS ---
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
-  // --- Safe JSON body parse (req.body undefined होने पर भी) ---
+  // --- Safe JSON body parse (req.body ना भी हो) ---
   async function readJsonBody(req) {
     try {
       if (req.body && typeof req.body === "object") return req.body;
@@ -15,25 +15,24 @@ export default async function handler(req, res) {
       for await (const c of req) chunks.push(c);
       const raw = Buffer.concat(chunks).toString("utf8");
       return raw ? JSON.parse(raw) : {};
-    } catch (e) {
-      return {}; // गलत JSON आए तो empty
+    } catch {
+      return {};
     }
   }
 
   try {
     const body = await readJsonBody(req);
-    const prompt = (body && body.prompt) ? String(body.prompt) : "";
+    const prompt = body && body.prompt ? String(body.prompt) : "";
     if (!prompt) return res.status(400).json({ error: "No prompt" });
 
     const HF_TOKEN = process.env.HF_TOKEN;
     if (!HF_TOKEN) return res.status(500).json({ error: "Missing HF_TOKEN env" });
 
-    // यह मॉडल स्थिर रहता है; चाहो तो बाद में बदल लेना
-    const MODEL = "mistralai/Mistral-7B-Instruct-v0.2";
+    const MODEL = "mistralai/Mistral-7B-Instruct-v0.2"; // चाहो तो बाद में बदल सकते हैं
 
-    // --- HF call with timeout so function hang न हो ---
+    // --- HF call with timeout ---
     const controller = new AbortController();
-    const to = setTimeout(() => controller.abort(), 30000); // 30s
+    const to = setTimeout(() => controller.abort(), 30000);
     let r, raw;
     try {
       r = await fetch(https://api-inference.huggingface.co/models/${MODEL}, {
@@ -45,7 +44,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({
           inputs:
 `आप एक अनुभवी भारतीय वैदिक ज्योतिषी हैं।
-सिर्फ हिंदी में, 3–5 छोटी पंक्तियों में उत्तर दें।
+सिर्फ हिंदी में 3–5 छोटी पंक्तियों में उत्तर दें।
 प्रश्न: ${prompt}
 उत्तर:`
         }),
@@ -58,12 +57,10 @@ export default async function handler(req, res) {
     }
     clearTimeout(to);
 
-    // HF ने error text दिया तो JSON में forward कर दो
     if (!r.ok) {
       return res.status(502).json({ error: "HF error", detail: raw });
     }
 
-    // JSON निकालने की कोशिश (array/object दोनों में से)
     let text = "";
     try {
       const data = JSON.parse(raw);
@@ -79,7 +76,6 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ text });
   } catch (e) {
-    // कभी भी crash हुआ तो भी JSON में जवाब
     return res.status(500).json({ error: e?.message || "Internal error" });
   }
-}
+};
