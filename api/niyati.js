@@ -1,6 +1,10 @@
-// api/niyati.js — Stable Node Serverless (CORS + clear errors)
+// api/niyati.js — Stable Node Serverless + Clear Logs (HuggingFace)
+// ---------------------------------------------------------------
+// NOTE: Vercel Project Settings → Environment Variables:
+// Key: HF_TOKEN , Value: your Hugging Face token (starts with "hf_")
+
 export default async function handler(req, res) {
-  // CORS
+  // --- CORS ---
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -8,43 +12,62 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
   try {
-    const prompt = (req.body && req.body.prompt) || "";
+    // --- Body / Prompt ---
+    const prompt = (req.body && req.body.prompt) ? String(req.body.prompt) : "";
     if (!prompt) return res.status(400).json({ error: "No prompt" });
 
+    // --- Env / Model ---
     const HF_TOKEN = process.env.HF_TOKEN;
-    if (!HF_TOKEN) return res.status(500).json({ error: "Missing HF_TOKEN env" });
+    const MODEL = "mistralai/Mistral-7B-Instruct-v0.2"; // more reliable
 
-    const MODEL = "google/gemma-2b-it";
+    // Debug logs (Vercel → Logs में दिखेंगे)
+    console.log("🧠 Prompt:", prompt);
+    console.log("🔑 HF_TOKEN exists:", !!HF_TOKEN);
+    console.log("📦 MODEL:", MODEL);
 
-    console.log("HF_TOKEN:", HF_TOKEN);
+    if (!HF_TOKEN) {
+      return res.status(500).json({ error: "Missing HF_TOKEN env" });
+    }
 
+    // --- HF Inference Call (simple inputs) ---
     const r = await fetch(https://api-inference.huggingface.co/models/${MODEL}, {
-  method: "POST",
-  headers: {
-    "Authorization": Bearer ${HF_TOKEN},
-    "Content-Type": "application/json"
-  },
-  body: JSON.stringify({
-    inputs: prompt
-  })
-});
+      method: "POST",
+      headers: {
+        Authorization: Bearer ${HF_TOKEN},
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        // सादा input भेज रहे हैं ताकि पहले कनेक्शन पक्का हो
+        inputs: `आप एक अनुभवी भारतीय वैदिक ज्योतिषी हैं।
+केवल हिंदी में 3–5 छोटी पंक्तियों में उत्तर दें।
+प्रश्न: ${prompt}
+उत्तर:`
+      })
+    });
+
+    // --- Read raw text first (कुछ मॉडेल्स array/obj दोनों दे देते हैं) ---
     const raw = await r.text();
-    let generated = "";
+
+    // Bad status? show HF response as detail
+    if (!r.ok) {
+      return res.status(502).json({ error: "HF error", detail: raw });
+    }
+
+    // Try to parse; accept both array/object shapes
+    let text = "";
     try {
       const data = JSON.parse(raw);
-      generated = (Array.isArray(data) ? data[0]?.generated_text : data?.generated_text) || "";
+      text = (Array.isArray(data) ? data[0]?.generated_text : data?.generated_text) || "";
     } catch {
-      generated = raw || "";
+      text = raw || "";
     }
 
-    if (!r.ok) {
-      return res.status(502).json({ error: "HF error", detail: generated });
-    }
-
-    let text = generated || "";
     if (text.includes("उत्तर:")) text = text.split("उत्तर:").pop().trim();
+    if (!text) text = "आज धैर्य रखें; छोटे कार्य पूरे होंगे और संध्या के बाद स्थिति बेहतर होगी।";
+
     return res.status(200).json({ text });
   } catch (e) {
-    return res.status(500).json({ error: e.message || "Internal error" });
+    console.error("❌ API crash:", e);
+    return res.status(500).json({ error: e?.message || "Internal error" });
   }
 }
