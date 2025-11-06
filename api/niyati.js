@@ -16,22 +16,18 @@ export default async function handler(req, res) {
 
     const MODEL = "google/gemma-2b-it";
 
+    console.log("HF_TOKEN:", HF_TOKEN);
+
     const r = await fetch(https://api-inference.huggingface.co/models/${MODEL}, {
-      method: "POST",
-      headers: {
-        Authorization: Bearer ${HF_TOKEN},
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        inputs:
-`आप एक अनुभवी भारतीय वैदिक ज्योतिषी हैं।
-सिर्फ़ हिंदी में 3–5 छोटी पंक्तियों में उत्तर दें।
-
-प्रश्न: ${prompt}
-उत्तर:`
-      })
-    });
-
+  method: "POST",
+  headers: {
+    "Authorization": Bearer ${HF_TOKEN},
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    inputs: prompt
+  })
+});
     const raw = await r.text();
     let generated = "";
     try {
