@@ -1,96 +1,94 @@
-// Niyati API — Vercel Serverless (Node 18+, native fetch)
-export default async function handler(req, res) {
-  // ---- CORS ----
-  const reqHeaders = req.headers["access-control-request-headers"] || "content-type";
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
+// api/niyati.js  — CommonJS + Full CORS on every path (Vercel Node)
 
+// NOTE: Node 18+ पर fetch() मौजूद है; extra package की ज़रूरत नहीं।
+const HF_MODEL = "google/gemma-2b-it";
+
+function setCors(res) {
+  // चाहो तो यहाँ अपना frontend origin डाल सकते हो:
+  // res.setHeader("Access-Control-Allow-Origin", "https://praveenishereon-hue.github.io");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(body || "{}"));
+      } catch {
+        resolve({});
+      }
+    });
+  });
+}
+
+module.exports = async function handler(req, res) {
+  setCors(res);
+
+  // Preflight
   if (req.method === "OPTIONS") {
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", reqHeaders);
     return res.status(204).end();
   }
 
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-  // GET पर simple OK (health check)
   if (req.method !== "POST") {
-    return res.status(200).json({ ok: true, note: "Send POST with JSON { prompt: '...' }" });
+    return res.status(405).json({ error: "POST only" });
   }
 
-  // ---- Safe JSON body parse ----
-  let body = {};
   try {
-    if (req.body && typeof req.body === "object") {
-      body = req.body;
-    } else {
-      const chunks = [];
-      for await (const c of req) chunks.push(c);
-      const raw = Buffer.concat(chunks).toString("utf8");
-      body = raw ? JSON.parse(raw) : {};
+    const { prompt } = await readJsonBody(req);
+    if (!prompt || typeof prompt !== "string") {
+      return res.status(400).json({ error: "No prompt" });
     }
-  } catch {
-    body = {};
-  }
 
-  const prompt = body?.prompt ? String(body.prompt) : "";
-  if (!prompt) return res.status(400).json({ error: "No prompt" });
+    const HF_TOKEN = process.env.HF_TOKEN;
+    if (!HF_TOKEN) {
+      return res.status(500).json({ error: "Missing HF_TOKEN env" });
+    }
 
-  // ---- Hugging Face call ----
-  const HF_TOKEN = process.env.HF_TOKEN;
-  if (!HF_TOKEN) return res.status(500).json({ error: "Missing HF_TOKEN" });
+    const hfRes = await fetch(
+      https://api-inference.huggingface.co/models/${HF_MODEL},
+      {
+        method: "POST",
+        headers: {
+          Authorization: Bearer ${HF_TOKEN},
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          inputs:
+            `आप एक अनुभवी भारतीय वैदिक ज्योतिषी हैं। ` +
+            केवल हिंदी में 3–5 छोटी पंक्तियों में उत्तर दें।\n\n +
+            प्रश्न: ${prompt}\nउत्तर:,
+        }),
+      }
+    );
 
-  // छोटा/fast मॉडल; जरूरत हो तो बदल सकते हैं
-  const MODEL = "google/gemma-2b-it"; // alt: "mistralai/Mistral-7B-Instruct-v0.2"
+    const raw = await hfRes.text();
 
-  const userPrompt =
-`आप एक अनुभवी भारतीय वैदिक ज्योतिषी हैं।
-सिर्फ हिंदी में 3–5 छोटी पंक्तियों में उत्तर दें।
-प्रश्न: ${prompt}
-उत्तर:`;
+    if (!hfRes.ok) {
+      // HF side error भी CORS सहित लौटाओ
+      setCors(res);
+      return res.status(502).json({ error: "HF error", detail: raw });
+    }
 
-  // Timeout guard (25s)
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000);
+    let out = "";
+    try {
+      const data = JSON.parse(raw);
+      out =
+        (Array.isArray(data) ? data[0]?.generated_text : data?.generated_text) ||
+        "";
+      if (out.includes("उत्तर:")) out = out.split("उत्तर:").pop().trim();
+    } catch {
+      out = raw;
+    }
 
-  let hfRes, raw;
-  try {
-    hfRes = await fetch(https://api-inference.huggingface.co/models/${MODEL}, {
-      method: "POST",
-      headers: {
-        "Authorization": Bearer ${HF_TOKEN},
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ inputs: userPrompt }),
-      signal: controller.signal
-    });
-    raw = await hfRes.text();
+    setCors(res);
+    return res.status(200).json({ text: out || "⚠️ कोई उत्तर प्राप्त नहीं हुआ।" });
   } catch (e) {
-    clearTimeout(timer);
-    if (e.name === "AbortError") return res.status(504).json({ error: "HF timeout" });
-    return res.status(502).json({ error: "HF fetch failed", detail: String(e) });
-  } finally {
-    clearTimeout(timer);
+    setCors(res);
+    return res.status(500).json({ error: e.message || "Server error" });
   }
-
-  if (!hfRes.ok) {
-    // HF अक्सर plain text में भी error देता है—उसी को लौटा दें
-    return res.status(502).json({ error: "HF error", detail: raw });
-  }
-
-  // ---- Parse HF response robustly ----
-  let text = "";
-  try {
-    const data = JSON.parse(raw);
-    text = (Array.isArray(data) ? data[0]?.generated_text : data?.generated_text) || "";
-  } catch {
-    // कुछ models raw text देते हैं
-    text = raw || "";
-  }
-
-  if (text.includes("उत्तर:")) text = text.split("उत्तर:").pop().trim();
-  if (!text) text = "आज धैर्य रखें; प्रयासों से शुभ परिणाम मिलेंगे।";
-
-  return res.status(200).json({ text });
-}
+};
