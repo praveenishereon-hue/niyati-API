@@ -1,10 +1,11 @@
 // api/niyati.js — CommonJS version (Vercel Node) + robust JSON replies
 module.exports = async function handler(req, res) {
-  // --- CORS ---
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") return res.status(200).end();
+  // --- CORS (wider, handles preflight cleanly) ---
+res.setHeader("Access-Control-Allow-Origin", "*");
+res.setHeader("Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
+res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+res.setHeader("Access-Control-Allow-Headers", "*");
+if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
   // --- Safe JSON body parse (req.body ना भी हो) ---
