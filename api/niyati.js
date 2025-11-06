@@ -1,23 +1,41 @@
-// api/niyati.js — Vercel Serverless API
-export default async function handler(req, res) {
-  // CORS (allow browser calls)
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+// api/niyati.js — Edge Function (CORS solid)
+export const config = { runtime: "edge" };
+
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type"
+};
+
+export default async function handler(req) {
+  // Preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 200, headers: CORS });
+  }
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "POST only" }), {
+      status: 405,
+      headers: CORS
+    });
+  }
 
   try {
-    const { prompt } = req.body || {};
-    if (!prompt) return res.status(400).json({ error: "No prompt" });
+    const body = await req.json().catch(() => ({}));
+    const prompt = body?.prompt || "";
+    if (!prompt) {
+      return new Response(JSON.stringify({ error: "No prompt" }), {
+        status: 400,
+        headers: CORS
+      });
+    }
 
-    const HF_TOKEN = process.env.HF_TOKEN;           // Vercel env
+    const HF_TOKEN = process.env.HF_TOKEN;
     const MODEL = "google/gemma-2b-it";
 
     const r = await fetch(https://api-inference.huggingface.co/models/${MODEL}, {
       method: "POST",
       headers: {
-        "Authorization": Bearer ${HF_TOKEN},
+        Authorization: Bearer ${HF_TOKEN},
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
@@ -32,15 +50,21 @@ export default async function handler(req, res) {
 
     if (!r.ok) {
       const t = await r.text();
-      return res.status(502).json({ error: "HF error", detail: t });
+      return new Response(JSON.stringify({ error: "HF error", detail: t }), {
+        status: 502,
+        headers: CORS
+      });
     }
 
     const data = await r.json();
     let text = (Array.isArray(data) ? data[0]?.generated_text : data?.generated_text) || "";
     if (text.includes("उत्तर:")) text = text.split("उत्तर:").pop().trim();
 
-    return res.status(200).json({ text });
+    return new Response(JSON.stringify({ text }), { status: 200, headers: CORS });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return new Response(JSON.stringify({ error: e.message }), {
+      status: 500,
+      headers: CORS
+    });
   }
 }
