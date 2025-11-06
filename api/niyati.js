@@ -10,6 +10,25 @@ if (req.method === "OPTIONS") return res.status(204).end();
 
   // --- Safe JSON body parse (req.body ना भी हो) ---
   async function readJsonBody(req) {
+module.exports = async function handler(req, res) {
+  // ---- CORS: preflight FIRST & EARLY ----
+  const reqHeaders = req.headers["access-control-request-headers"] || "*";
+
+  // allow from anywhere
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  // for caches/proxies so the above is respected
+  res.setHeader("Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
+
+  if (req.method === "OPTIONS") {
+    // reply to preflight cleanly
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", reqHeaders);
+    return res.status(204).end(); // <— preflight success, no body
+  }
+
+  // normal requests will also see these:
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
     try {
       if (req.body && typeof req.body === "object") return req.body;
       const chunks = [];
